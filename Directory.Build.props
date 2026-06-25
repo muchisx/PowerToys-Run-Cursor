@@ -9,6 +9,12 @@
   </PropertyGroup>
 
   <ItemGroup>
+    <!-- The e_sqlite3 native dependency is provided by the PowerToys host at runtime and is not
+         shipped by this plugin, so suppress the transitive advisory to keep the audited build green. -->
+    <NuGetAuditSuppress Include="https://github.com/advisories/GHSA-2m69-gcr7-jv3q" />
+  </ItemGroup>
+
+  <ItemGroup>
     <Compile Include="..\GlobalSuppressions.cs" Link="GlobalSuppressions.cs" />
     <AdditionalFiles Include="..\StyleCop.json" Link="StyleCop.json" />
   </ItemGroup>
