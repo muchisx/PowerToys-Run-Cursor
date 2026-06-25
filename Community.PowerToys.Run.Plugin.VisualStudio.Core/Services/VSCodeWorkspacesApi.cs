@@ -47,6 +47,10 @@ namespace Community.PowerToys.Run.Plugin.VisualStudio.Core.Services
                 // User/globalStorage/state.vscdb - history.recentlyOpenedPathsList - vscode v1.64 or later
                 var vscode_storage_db = Path.Combine(vsCodePath, "User", "globalStorage", "state.vscdb");
 
+                // vscode v1.118 or later moved history.recentlyOpenedPathsList to the
+                // shared application storage database located in the user profile directory
+                var vscode_shared_storage_db = GetSharedStorageDbPath(Path.GetFileName(vsCodePath));
+
                 if (File.Exists(vscode_storage))
                 {
                     var storageResults = GetWorkspacesInJson(vscode_storage);
@@ -54,16 +58,59 @@ namespace Community.PowerToys.Run.Plugin.VisualStudio.Core.Services
                     _logger.LogInformation($"Found {storageResults.Count} workspaces in storage.json at {vscode_storage}", typeof(VSCodeWorkspacesApi));
                 }
 
-                if (File.Exists(vscode_storage_db))
+                var storageDbPaths = new[] { vscode_storage_db, vscode_shared_storage_db }
+                    .Where(filePath => !string.IsNullOrEmpty(filePath))
+                    .Distinct(StringComparer.OrdinalIgnoreCase);
+
+                foreach (var storageDbPath in storageDbPaths)
                 {
-                    var storageDbResults = GetWorkspacesInVscdb(vscode_storage_db);
-                    results.AddRange(storageDbResults);
-                    _logger.LogInformation($"Found {storageDbResults.Count} workspaces in state.vscdb at {vscode_storage_db}", typeof(VSCodeWorkspacesApi));
+                    if (File.Exists(storageDbPath))
+                    {
+                        var storageDbResults = GetWorkspacesInVscdb(storageDbPath);
+                        results.AddRange(storageDbResults);
+                        _logger.LogInformation($"Found {storageDbResults.Count} workspaces in state.vscdb at {storageDbPath}", typeof(VSCodeWorkspacesApi));
+                    }
                 }
             }
 
-            _logger.LogInformation($"Total VS Code workspaces found: {results.Count}", typeof(VSCodeWorkspacesApi));
-            return results;
+            // The same workspace can appear in both the legacy and shared storage databases
+            var deduplicatedResults = results
+                .GroupBy(GetWorkspaceKey, StringComparer.OrdinalIgnoreCase)
+                .Select(workspaceGroup => workspaceGroup.First())
+                .ToList();
+
+            _logger.LogInformation($"Total VS Code workspaces found: {deduplicatedResults.Count}", typeof(VSCodeWorkspacesApi));
+            return deduplicatedResults;
+        }
+
+        private static string GetWorkspaceKey(VSCodeWorkspace workspace)
+        {
+            return string.Join(
+                "|",
+                workspace.WorkspaceType,
+                workspace.Path);
+        }
+
+        private static string GetSharedStorageDbPath(string version)
+        {
+            var userProfilePath = Environment.GetFolderPath(Environment.SpecialFolder.UserProfile);
+
+            var sharedStorageDirectory = version switch
+            {
+                "Code" => ".vscode-shared",
+                "Code - Insiders" => ".vscode-insiders-shared",
+                "Code - Exploration" => ".vscode-exploration-shared",
+                "VSCodium" => ".vscodium-shared",
+                "VSCodium - Insiders" => ".vscodium-insiders-shared",
+                _ => string.Empty,
+            };
+
+            if (string.IsNullOrEmpty(sharedStorageDirectory))
+            {
+                return string.Empty;
+            }
+
+            return Path.Combine(userProfilePath, sharedStorageDirectory, "sharedStorage", "state.vscdb");
         }
 
         private VSCodeWorkspace? ParseVSCodeUriAndAuthority(string? uri, string? authority, bool isWorkspace = false)
